@@ -1,0 +1,16 @@
+{
+  "name": "clipbridge-relay",
+  "version": "1.0.0",
+  "description": "ClipBridge WebSocket relay server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
