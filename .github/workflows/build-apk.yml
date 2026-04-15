@@ -1,0 +1,45 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android-app/gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+        working-directory: android-app
+
+      - name: List build outputs
+        if: always()
+        run: |
+          echo "=== Listing android-app/app/build/outputs ==="
+          find android-app/ -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+          echo "=== Full build directory tree ==="
+          ls -R android-app/app/build/outputs/ 2>/dev/null || echo "No build/outputs directory found"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-app-bundle
+          path: android-app/app/build/outputs/apk/debug/
+          if-no-files-found: error
