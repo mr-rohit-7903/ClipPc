@@ -26,6 +26,7 @@ class ClipBridgeService : Service() {
     private var webSocket: WebSocket? = null
     private var client: OkHttpClient? = null
     private var running = false
+    @Volatile private var isConnected = false
     private var lastSent = ""
     private var lastReceived = ""
 
@@ -39,6 +40,11 @@ class ClipBridgeService : Service() {
         super.onCreate()
         prefs = getSharedPreferences("clipbridge_prefs", MODE_PRIVATE)
         clipboardManager = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(0, TimeUnit.SECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
+            .build()
         createNotificationChannel()
     }
 
@@ -96,14 +102,12 @@ class ClipBridgeService : Service() {
             return@suspendCancellableCoroutine
         }
 
+        // Reset stale clipboard state from previous session
+        lastSent = ""
+        lastReceived = ""
+
         val key = CryptoHelper.deriveKey(secret)
         val room = CryptoHelper.deriveRoom(secret)
-
-        client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS) // Long-lived connection
-            .pingInterval(20, TimeUnit.SECONDS)
-            .build()
 
         val request = Request.Builder().url(serverUrl).build()
 
@@ -111,6 +115,7 @@ class ClipBridgeService : Service() {
 
             override fun onOpen(ws: WebSocket, response: Response) {
                 Log.i(TAG, "WebSocket connected")
+                isConnected = true
                 // Join room
                 ws.send(JSONObject().apply {
                     put("type", "join")
@@ -119,7 +124,7 @@ class ClipBridgeService : Service() {
                 }.toString())
 
                 startClipboardPolling(ws, key)
-                broadcastStatus("connected", "Syncing with $deviceId")
+                broadcastStatus("connected", "Connected to relay server")
                 updateNotification("Connected ✓")
             }
 
@@ -154,6 +159,7 @@ class ClipBridgeService : Service() {
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                isConnected = false
                 pollJob?.cancel()
                 broadcastStatus("disconnected", "Connection closed")
                 updateNotification("Disconnected")
@@ -161,6 +167,7 @@ class ClipBridgeService : Service() {
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                isConnected = false
                 pollJob?.cancel()
                 broadcastStatus("disconnected", t.message ?: "Connection failed")
                 updateNotification("Connection failed")
@@ -179,7 +186,7 @@ class ClipBridgeService : Service() {
     private fun startClipboardPolling(ws: WebSocket, key: ByteArray) {
         pollJob?.cancel()
         pollJob = scope.launch {
-            while (running && ws.send("")) {  // ws still open check via send("")
+            while (running && isConnected) {
                 try {
                     val current = getClipboard()
                     if (current.isNotEmpty() && current != lastSent && current != lastReceived) {

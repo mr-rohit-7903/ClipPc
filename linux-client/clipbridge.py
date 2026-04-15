@@ -57,15 +57,23 @@ CONFIG_DIR = Path.home() / ".config" / "clipbridge"
 CONFIG_FILE = CONFIG_DIR / "config.ini"
 LOG_FILE = CONFIG_DIR / "clipbridge.log"
 
+# Initial logging: stdout only until config directory is created
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(LOG_FILE, encoding="utf-8") if CONFIG_DIR.exists() else logging.NullHandler()
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 log = logging.getLogger("clipbridge")
+
+
+def setup_logging():
+    """Add file handler after config directory is confirmed to exist."""
+    try:
+        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+        log.addHandler(file_handler)
+    except OSError as e:
+        log.warning(f"Could not create log file: {e}")
 
 # ─────────────────────────────────────────────
 DEFAULT_SERVER = "ws://YOUR_SERVER_IP:8765"  # Change this after deploying relay
@@ -126,6 +134,7 @@ class ClipboardWatcher:
 
     def get_if_changed(self) -> str | None:
         current = self._read()
+        # Intentionally ignore empty clipboard to avoid syncing clears
         if current != self._last and current:
             self._last = current
             return current
@@ -229,6 +238,7 @@ class ClipBridgeClient:
 # ─────────────────────────────────────────────
 def load_or_create_config():
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    setup_logging()  # Now safe to create log file
     config = configparser.ConfigParser()
 
     if CONFIG_FILE.exists():
