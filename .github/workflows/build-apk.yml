@@ -22,18 +22,20 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
       - name: Grant execute permission for gradlew
         run: chmod +x android-app/gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace
         working-directory: android-app
 
-      - name: Find APK location
-        run: find . -name "*.apk" -type f
+      - name: List build outputs
+        if: always()
+        run: |
+          echo "=== Listing android-app/app/build/outputs ==="
+          find android-app/ -name "*.apk" -type f 2>/dev/null || echo "No APK files found"
+          echo "=== Full build directory tree ==="
+          ls -R android-app/app/build/outputs/ 2>/dev/null || echo "No build/outputs directory found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
