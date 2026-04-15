@@ -32,6 +32,9 @@ jobs:
         run: ./gradlew assembleDebug
         working-directory: android-app
 
+      - name: Find APK location
+        run: find . -name "*.apk" -type f
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
