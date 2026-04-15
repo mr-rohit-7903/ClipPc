@@ -36,4 +36,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: my-app-bundle
-          path: android-app/app/build/outputs/apk/debug/*.apk
+          path: android-app/app/build/outputs/apk/debug/
+          if-no-files-found: error
