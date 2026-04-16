@@ -5,9 +5,13 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.text.TextUtils
 import android.view.View
+import android.view.accessibility.AccessibilityManager
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.cardview.widget.CardView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -30,6 +34,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnToggle: Button
     private lateinit var btnSave: Button
 
+    // Accessibility views
+    private lateinit var cardAccessibility: CardView
+    private lateinit var tvAccessibilityStatus: TextView
+    private lateinit var btnAccessibility: Button
+
     private var isRunning = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +52,12 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
         registerStatusReceiver()
         requestPermissionsIfNeeded()
+        updateAccessibilityStatus()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateAccessibilityStatus()
     }
 
     private fun bindViews() {
@@ -54,6 +69,11 @@ class MainActivity : AppCompatActivity() {
         etDeviceId = findViewById(R.id.etDeviceId)
         btnToggle = findViewById(R.id.btnToggle)
         btnSave = findViewById(R.id.btnSave)
+
+        // Accessibility views
+        cardAccessibility = findViewById(R.id.cardAccessibility)
+        tvAccessibilityStatus = findViewById(R.id.tvAccessibilityStatus)
+        btnAccessibility = findViewById(R.id.btnAccessibility)
     }
 
     private fun loadPrefs() {
@@ -70,6 +90,10 @@ class MainActivity : AppCompatActivity() {
 
         btnToggle.setOnClickListener {
             if (isRunning) stopService() else startService()
+        }
+
+        btnAccessibility.setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
     }
 
@@ -99,6 +123,16 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
+
+        // Warn if accessibility service is not enabled
+        if (!isAccessibilityServiceEnabled()) {
+            Toast.makeText(
+                this,
+                "⚠️ Enable Accessibility Permission for clipboard sync to work",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
         savePrefs()
 
         val intent = Intent(this, ClipBridgeService::class.java)
@@ -170,6 +204,35 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         statusReceiver?.let { unregisterReceiver(it) }
         super.onDestroy()
+    }
+
+    // ── Accessibility Service ───────────────────────────────────
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val serviceName = "$packageName/${ClipBridgeAccessibilityService::class.java.canonicalName}"
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return TextUtils.SimpleStringSplitter(':').run {
+            setString(enabledServices)
+            while (hasNext()) {
+                if (next().equals(serviceName, ignoreCase = true)) return true
+            }
+            false
+        }
+    }
+
+    private fun updateAccessibilityStatus() {
+        val enabled = isAccessibilityServiceEnabled()
+        tvAccessibilityStatus.text = if (enabled) "✓ Enabled" else "Not enabled"
+        tvAccessibilityStatus.setTextColor(
+            getColor(if (enabled) R.color.success else R.color.danger)
+        )
+        btnAccessibility.text = if (enabled) "Accessibility Enabled ✓" else "Open Accessibility Settings"
+        btnAccessibility.backgroundTintList = android.content.res.ColorStateList.valueOf(
+            getColor(if (enabled) R.color.success else R.color.warning)
+        )
     }
 
     // ── Permissions ──────────────────────────────────────────────

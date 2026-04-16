@@ -11,7 +11,7 @@ Copy on your phone → paste on your PC. Copy on your PC → paste on your phone
 ```
 ┌─────────────┐         ┌──────────────────┐         ┌─────────────────┐
 │  Your Phone │◄───────►│  Relay Server    │◄───────►│  Your Linux PC  │
-│ (Android)   │  wss://  │  (VPS/Cloud)     │  wss://  │  (Python daemon)│
+│ (Android)   │  wss:// │  (VPS/Cloud)     │  wss:// │  (Python daemon)│
 └─────────────┘         └──────────────────┘         └─────────────────┘
         AES-256-GCM encrypted — server never sees plaintext
 ```

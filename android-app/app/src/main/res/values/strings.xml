@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClipBridge</string>
+    <string name="accessibility_service_description">ClipBridge uses accessibility to detect clipboard changes and sync them across your devices. This is required on Android 10+ because background apps cannot read the clipboard directly.</string>
 </resources>

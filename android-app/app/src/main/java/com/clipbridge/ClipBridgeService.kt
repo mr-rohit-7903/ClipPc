@@ -5,6 +5,7 @@ import android.content.*
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import kotlinx.coroutines.*
 import okhttp3.*
 import org.json.JSONObject
@@ -33,8 +34,11 @@ class ClipBridgeService : Service() {
     private lateinit var prefs: android.content.SharedPreferences
     private lateinit var clipboardManager: android.content.ClipboardManager
 
-    // Clipboard polling job
-    private var pollJob: Job? = null
+    // Encryption key — set once we connect
+    private var encryptionKey: ByteArray? = null
+
+    // Broadcast receiver for clipboard changes from AccessibilityService
+    private var clipboardReceiver: BroadcastReceiver? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -46,6 +50,7 @@ class ClipBridgeService : Service() {
             .pingInterval(20, TimeUnit.SECONDS)
             .build()
         createNotificationChannel()
+        registerClipboardReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,6 +66,7 @@ class ClipBridgeService : Service() {
 
     override fun onDestroy() {
         running = false
+        unregisterClipboardReceiver()
         scope.cancel()
         webSocket?.close(1000, "Service stopped")
         client?.dispatcher?.executorService?.shutdown()
@@ -68,6 +74,50 @@ class ClipBridgeService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    // ── Clipboard broadcast receiver ────────────────────────────
+
+    private fun registerClipboardReceiver() {
+        clipboardReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val text = intent.getStringExtra(ClipBridgeAccessibilityService.EXTRA_CLIP_TEXT)
+                    ?: return
+                if (text.isEmpty() || text == lastSent || text == lastReceived) return
+
+                val ws = webSocket ?: return
+                val key = encryptionKey ?: return
+                if (!isConnected) return
+
+                scope.launch {
+                    try {
+                        lastSent = text
+                        val payload = CryptoHelper.encrypt(text, key)
+                        ws.send(JSONObject().apply {
+                            put("type", "clip")
+                            put("data", payload.data)
+                            put("iv", payload.iv)
+                        }.toString())
+                        val preview = text.take(40).replace("\n", "↵")
+                        Log.i(TAG, "→ Sent: $preview")
+                        broadcastStatus("connected", "Sent: $preview")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Send error: ${e.message}")
+                    }
+                }
+            }
+        }
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            clipboardReceiver!!,
+            IntentFilter(ClipBridgeAccessibilityService.ACTION_CLIPBOARD_CHANGED)
+        )
+    }
+
+    private fun unregisterClipboardReceiver() {
+        clipboardReceiver?.let {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(it)
+        }
+        clipboardReceiver = null
+    }
 
     // ── Core sync ───────────────────────────────────────────────
 
@@ -107,6 +157,7 @@ class ClipBridgeService : Service() {
         lastReceived = ""
 
         val key = CryptoHelper.deriveKey(secret)
+        encryptionKey = key
         val room = CryptoHelper.deriveRoom(secret)
 
         val request = Request.Builder().url(serverUrl).build()
@@ -123,7 +174,6 @@ class ClipBridgeService : Service() {
                     put("deviceId", deviceId)
                 }.toString())
 
-                startClipboardPolling(ws, key)
                 broadcastStatus("connected", "Connected to relay server")
                 updateNotification("Connected ✓")
             }
@@ -160,7 +210,7 @@ class ClipBridgeService : Service() {
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 isConnected = false
-                pollJob?.cancel()
+                encryptionKey = null
                 broadcastStatus("disconnected", "Connection closed")
                 updateNotification("Disconnected")
                 if (running) cont.resumeWith(Result.failure(Exception("Closed: $reason")))
@@ -168,7 +218,7 @@ class ClipBridgeService : Service() {
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                pollJob?.cancel()
+                encryptionKey = null
                 broadcastStatus("disconnected", t.message ?: "Connection failed")
                 updateNotification("Connection failed")
                 if (running) cont.resumeWith(Result.failure(t))
@@ -177,50 +227,10 @@ class ClipBridgeService : Service() {
 
         cont.invokeOnCancellation {
             webSocket?.close(1000, "Cancelled")
-            pollJob?.cancel()
-        }
-    }
-
-    // ── Clipboard polling ────────────────────────────────────────
-
-    private fun startClipboardPolling(ws: WebSocket, key: ByteArray) {
-        pollJob?.cancel()
-        pollJob = scope.launch {
-            while (running && isConnected) {
-                try {
-                    val current = getClipboard()
-                    if (current.isNotEmpty() && current != lastSent && current != lastReceived) {
-                        lastSent = current
-                        val payload = CryptoHelper.encrypt(current, key)
-                        ws.send(JSONObject().apply {
-                            put("type", "clip")
-                            put("data", payload.data)
-                            put("iv", payload.iv)
-                        }.toString())
-                        val preview = current.take(40).replace("\n", "↵")
-                        Log.i(TAG, "→ Sent: $preview")
-                        broadcastStatus("connected", "Sent: $preview")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Poll error: ${e.message}")
-                }
-                delay(300) // Poll every 300ms
-            }
         }
     }
 
     // ── Clipboard helpers ────────────────────────────────────────
-
-    private fun getClipboard(): String {
-        return try {
-            if (!clipboardManager.hasPrimaryClip()) return ""
-            val clip = clipboardManager.primaryClip ?: return ""
-            if (clip.itemCount == 0) return ""
-            clip.getItemAt(0).coerceToText(this)?.toString() ?: ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
 
     private fun setClipboard(text: String) {
         try {
