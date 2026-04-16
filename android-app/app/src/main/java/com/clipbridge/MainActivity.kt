@@ -1,13 +1,21 @@
 package com.clipbridge
 
+import android.Manifest
 import android.content.*
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
+
+    companion object {
+        private const val REQUEST_NOTIFICATION_PERMISSION = 100
+    }
 
     private lateinit var prefs: SharedPreferences
     private var statusReceiver: BroadcastReceiver? = null
@@ -34,6 +42,7 @@ class MainActivity : AppCompatActivity() {
         loadPrefs()
         setupListeners()
         registerStatusReceiver()
+        requestPermissionsIfNeeded()
     }
 
     private fun bindViews() {
@@ -76,6 +85,18 @@ class MainActivity : AppCompatActivity() {
     private fun startService() {
         if (etSecret.text.isNullOrBlank()) {
             Toast.makeText(this, "Please enter a shared secret", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Check notification permission (required for foreground service on Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                REQUEST_NOTIFICATION_PERMISSION
+            )
             return
         }
         savePrefs()
@@ -149,5 +170,38 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         statusReceiver?.let { unregisterReceiver(it) }
         super.onDestroy()
+    }
+
+    // ── Permissions ──────────────────────────────────────────────
+
+    private fun requestPermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_NOTIFICATION_PERMISSION
+                )
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            REQUEST_NOTIFICATION_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Notification permission is required for sync", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 }
